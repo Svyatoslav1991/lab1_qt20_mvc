@@ -6,19 +6,11 @@
 #include <QIcon>
 #include <QPixmap>
 #include <QTextStream>
+#include <QIODevice>
 #include <QtGlobal>
 
-/**
- * @brief Преобразует значение Qt::PenStyle в человекочитаемую строку.
- *
- * @details
- * Используется:
- * - для Qt::DisplayRole (чтобы в таблице не было “1/2/3”, а было "Qt::DotLine")
- * - при сохранении в файл (чтобы файл был читаемым)
- *
- * @param style Стиль пера.
- * @return Строка с именем перечисления или fallback-формат "Qt::PenStyle(<число>)".
- */
+// -------------------- helpers: PenStyle <-> string --------------------
+
 QString MyModel::penStyleToString(Qt::PenStyle style)
 {
     switch (style)
@@ -34,27 +26,11 @@ QString MyModel::penStyleToString(Qt::PenStyle style)
     }
 }
 
-/**
- * @brief Парсит Qt::PenStyle из строки.
- *
- * @details
- * Поддерживаем несколько форматов:
- * 1) чистое число (например "3")
- * 2) "Qt::PenStyle(3)"
- * 3) имя перечисления (например "Qt::DotLine")
- *
- * Это повышает устойчивость загрузки: файл может быть сохранён в разных вариантах
- * (или пользователь мог вручную поправить строку).
- *
- * @param s Строка.
- * @param ok Опционально: флаг успешности парсинга.
- * @return Значение Qt::PenStyle (если ok=false — возвращается Qt::SolidLine как fallback).
- */
 Qt::PenStyle MyModel::penStyleFromString(const QString& s, bool* ok)
 {
     const QString t = s.trimmed();
 
-    // (1) Число
+    // (1) число
     bool numOk = false;
     const int asInt = t.toInt(&numOk);
     if (numOk)
@@ -76,7 +52,7 @@ Qt::PenStyle MyModel::penStyleFromString(const QString& s, bool* ok)
         }
     }
 
-    // (3) Имя перечисления
+    // (3) имена
     struct MapItem { const char* name; Qt::PenStyle style; };
     static const MapItem kMap[] = {
         {"Qt::NoPen",          Qt::NoPen},
@@ -97,34 +73,25 @@ Qt::PenStyle MyModel::penStyleFromString(const QString& s, bool* ok)
     }
 
     if (ok) *ok = false;
-    return Qt::SolidLine; // fallback
+    return Qt::SolidLine;
 }
 
-/**
- * @brief Конструктор табличной модели MyModel.
- *
- * @details
- * Заполняем заголовки в строгом соответствии с enum Column.
- * Q_ASSERT помогает поймать расхождения при рефакторинге.
- */
+QVector<int> MyModel::changedRolesForColumn(Column c)
+{
+    if (c == Column::PenColor)
+        return { Qt::DisplayRole, Qt::EditRole, Qt::DecorationRole };
+
+    return { Qt::DisplayRole, Qt::EditRole };
+}
+
+// -------------------- ctor / basic --------------------
+
 MyModel::MyModel(QObject* parent)
     : QAbstractTableModel(parent)
 {
-    m_headerData
-        << "PenColor"
-        << "PenStyle"
-        << "PenWidth"
-        << "Left"
-        << "Top"
-        << "Width"
-        << "Height";
-
-    Q_ASSERT(m_headerData.size() == columnCountValue());
+    static_assert(kColumns.size() == kColCount, "kColumns must match Column::Count");
 }
 
-/**
- * @brief Количество строк модели.
- */
 int MyModel::rowCount(const QModelIndex& parent) const
 {
     if (parent.isValid())
@@ -132,22 +99,58 @@ int MyModel::rowCount(const QModelIndex& parent) const
     return m_items.size();
 }
 
-/**
- * @brief Количество столбцов модели.
- */
 int MyModel::columnCount(const QModelIndex& parent) const
 {
     if (parent.isValid())
         return 0;
-    return columnCountValue();
+    return kColCountInt;
 }
 
-/**
- * @brief Возвращает данные по индексу и роли.
- *
- * @details
- * См. документацию класса: DisplayRole / EditRole / DecorationRole.
- */
+QVariant MyModel::headerData(int section, Qt::Orientation orientation, int role) const
+{
+    if (role != Qt::DisplayRole)
+        return {};
+
+    if (orientation == Qt::Horizontal)
+    {
+        if (section < 0 || section >= kColCountInt)
+            return {};
+        return QLatin1String(kColumns[static_cast<std::size_t>(section)].header);
+    }
+
+    return section + 1;
+}
+
+bool MyModel::setHeaderData(int, Qt::Orientation, const QVariant&, int)
+{
+    // Заголовки фиксированы (kColumns).
+    return false;
+}
+
+Qt::ItemFlags MyModel::flags(const QModelIndex& index) const
+{
+    if (!index.isValid())
+        return Qt::NoItemFlags;
+    return QAbstractTableModel::flags(index) | Qt::ItemIsEditable;
+}
+
+bool MyModel::insertRows(int row, int count, const QModelIndex& parent)
+{
+    if (parent.isValid() || count <= 0)
+        return false;
+
+    if (row < 0) row = 0;
+    if (row > m_items.size()) row = m_items.size();
+
+    beginInsertRows(QModelIndex(), row, row + count - 1);
+    m_items.insert(row, count, MyRect{});
+    endInsertRows();
+
+    return true;
+}
+
+// -------------------- data / setData --------------------
+
 QVariant MyModel::data(const QModelIndex& index, int role) const
 {
     if (!index.isValid())
@@ -158,19 +161,18 @@ QVariant MyModel::data(const QModelIndex& index, int role) const
 
     if (row < 0 || row >= m_items.size())
         return {};
-    if (col < 0 || col >= columnCountValue())
+    if (col < 0 || col >= kColCountInt)
         return {};
 
     const MyRect& r = m_items[row];
-    const Column column = static_cast<Column>(col);
+    const Column column = kColumns[static_cast<std::size_t>(col)].col;
 
-    // --- EditRole: удобные для редактирования типы ---
     if (role == Qt::EditRole)
     {
         switch (column)
         {
-        case Column::PenColor:  return r.penColor;                   // QColor
-        case Column::PenStyle:  return static_cast<int>(r.penStyle); // int
+        case Column::PenColor:  return r.penColor;
+        case Column::PenStyle:  return static_cast<int>(r.penStyle);
         case Column::PenWidth:  return r.penWidth;
         case Column::Left:      return r.left;
         case Column::Top:       return r.top;
@@ -181,13 +183,12 @@ QVariant MyModel::data(const QModelIndex& index, int role) const
         return {};
     }
 
-    // --- DisplayRole: “красивое” отображение ---
     if (role == Qt::DisplayRole)
     {
         switch (column)
         {
-        case Column::PenColor:  return r.penColor.name();            // "#RRGGBB"
-        case Column::PenStyle:  return penStyleToString(r.penStyle); // "Qt::DotLine"
+        case Column::PenColor:  return r.penColor.name();
+        case Column::PenStyle:  return penStyleToString(r.penStyle);
         case Column::PenWidth:  return r.penWidth;
         case Column::Left:      return r.left;
         case Column::Top:       return r.top;
@@ -198,7 +199,6 @@ QVariant MyModel::data(const QModelIndex& index, int role) const
         return {};
     }
 
-    // --- DecorationRole: иконка цвета для PenColor ---
     if (role == Qt::DecorationRole && column == Column::PenColor)
     {
         QPixmap px(32, 32);
@@ -209,20 +209,9 @@ QVariant MyModel::data(const QModelIndex& index, int role) const
     return {};
 }
 
-/**
- * @brief Устанавливает данные (редактирование).
- *
- * @details
- * Принимаем изменения только по Qt::EditRole.
- * После фактического изменения эмитим dataChanged(index,index),
- * чтобы View перерисовал ячейку и (при необходимости) иконку.
- */
 bool MyModel::setData(const QModelIndex& index, const QVariant& value, int role)
 {
-    if (!index.isValid())
-        return false;
-
-    if (role != Qt::EditRole)
+    if (!index.isValid() || role != Qt::EditRole)
         return false;
 
     const int row = index.row();
@@ -230,11 +219,11 @@ bool MyModel::setData(const QModelIndex& index, const QVariant& value, int role)
 
     if (row < 0 || row >= m_items.size())
         return false;
-    if (col < 0 || col >= columnCountValue())
+    if (col < 0 || col >= kColCountInt)
         return false;
 
     MyRect& r = m_items[row];
-    const Column column = static_cast<Column>(col);
+    const Column column = kColumns[static_cast<std::size_t>(col)].col;
 
     bool changed = false;
 
@@ -242,7 +231,6 @@ bool MyModel::setData(const QModelIndex& index, const QVariant& value, int role)
     {
     case Column::PenColor:
     {
-        // Поддерживаем QColor (нормально для делегата) и строку "#RRGGBB" (если ввод руками).
         QColor c;
         if (value.canConvert<QColor>())
             c = value.value<QColor>();
@@ -261,10 +249,7 @@ bool MyModel::setData(const QModelIndex& index, const QVariant& value, int role)
     }
     case Column::PenStyle:
     {
-        // Ожидаем int, который интерпретируем как Qt::PenStyle.
-        const int styleInt = value.toInt();
-        const Qt::PenStyle style = static_cast<Qt::PenStyle>(styleInt);
-
+        const Qt::PenStyle style = static_cast<Qt::PenStyle>(value.toInt());
         if (r.penStyle != style)
         {
             r.penStyle = style;
@@ -329,90 +314,12 @@ bool MyModel::setData(const QModelIndex& index, const QVariant& value, int role)
     if (!changed)
         return true;
 
-    emit dataChanged(index, index);
+    emit dataChanged(index, index, changedRolesForColumn(column));
     return true;
 }
 
-/**
- * @brief Заголовки строк/столбцов.
- */
-QVariant MyModel::headerData(int section, Qt::Orientation orientation, int role) const
-{
-    if (role != Qt::DisplayRole)
-        return {};
+// -------------------- slotAddData / test --------------------
 
-    if (orientation == Qt::Horizontal)
-    {
-        if (section >= 0 && section < m_headerData.size())
-            return m_headerData.at(section);
-        return {};
-    }
-
-    // Вертикальные заголовки: номера строк 1..N
-    return section + 1;
-}
-
-/**
- * @brief Изменение заголовков.
- */
-bool MyModel::setHeaderData(int section,
-                            Qt::Orientation orientation,
-                            const QVariant& value,
-                            int role)
-{
-    if (role != Qt::EditRole)
-        return false;
-
-    if (orientation != Qt::Horizontal)
-        return false;
-
-    if (section < 0 || section >= m_headerData.size())
-        return false;
-
-    m_headerData[section] = value.toString();
-    emit headerDataChanged(orientation, section, section);
-    return true;
-}
-
-/**
- * @brief Вставка строк в модель.
- */
-bool MyModel::insertRows(int row, int count, const QModelIndex& parent)
-{
-    if (parent.isValid())
-        return false;
-
-    if (count <= 0)
-        return false;
-
-    if (row < 0)
-        row = 0;
-    if (row > m_items.size())
-        row = m_items.size();
-
-    beginInsertRows(QModelIndex(), row, row + count - 1);
-
-    for (int i = 0; i < count; ++i)
-        m_items.insert(row, MyRect{});
-
-    endInsertRows();
-    return true;
-}
-
-/**
- * @brief Флаги элемента.
- */
-Qt::ItemFlags MyModel::flags(const QModelIndex& index) const
-{
-    if (!index.isValid())
-        return Qt::NoItemFlags;
-
-    return QAbstractTableModel::flags(index) | Qt::ItemIsEditable;
-}
-
-/**
- * @brief Добавление строки в конец модели.
- */
 void MyModel::slotAddData(const MyRect& rect)
 {
     const int row = m_items.size();
@@ -423,29 +330,20 @@ void MyModel::slotAddData(const MyRect& rect)
     m_items[row] = rect;
 
     const QModelIndex leftTop = index(row, 0);
-    const QModelIndex rightBottom = index(row, columnCountValue() - 1);
-    emit dataChanged(leftTop, rightBottom);
+    const QModelIndex rightBottom = index(row, kColCountInt - 1);
+
+    emit dataChanged(leftTop, rightBottom,
+                     {Qt::DisplayRole, Qt::EditRole, Qt::DecorationRole});
 }
 
-/**
- * @brief Тестовое заполнение.
- */
 void MyModel::test()
 {
     slotAddData(MyRect(QColor(Qt::red),   Qt::SolidLine, 2, 100, 100, 100, 100));
     slotAddData(MyRect(QColor(Qt::green), Qt::DotLine,   3,  10,  10, 100, 200));
 }
 
-/**
- * @brief Сохранение данных модели в TSV.
- *
- * @details
- * Каждая строка файла:
- * PenColor \t PenStyle \t PenWidth \t Left \t Top \t Width \t Height
- *
- * PenColor сохраняем как "#RRGGBB" (QColor::name()).
- * PenStyle сохраняем как читаемое имя "Qt::DotLine" (penStyleToString()).
- */
+// -------------------- save/load wrappers by filename --------------------
+
 bool MyModel::saveToTsv(const QString& fileName, QString* error) const
 {
     QFile file(fileName);
@@ -454,37 +352,9 @@ bool MyModel::saveToTsv(const QString& fileName, QString* error) const
         if (error) *error = file.errorString();
         return false;
     }
-
-    QTextStream stream(&file);
-
-    for (const MyRect& r : m_items)
-    {
-        QStringList fields;
-        fields
-            << r.penColor.name()
-            << penStyleToString(r.penStyle)
-            << QString::number(r.penWidth)
-            << QString::number(r.left)
-            << QString::number(r.top)
-            << QString::number(r.width)
-            << QString::number(r.height);
-
-        stream << fields.join('\t') << '\n';
-    }
-
-    return true;
+    return saveToTsv(static_cast<QIODevice&>(file), error);
 }
 
-/**
- * @brief Загрузка данных модели из TSV.
- *
- * @details
- * - Читаем файл построчно.
- * - Каждая непустая строка разбивается по '\t'.
- * - Ожидаем ровно 7 полей (Column::Count без Count).
- * - Если встречается ошибка формата, возвращаем false и НЕ меняем текущую модель.
- * - При успешной загрузке заменяем данные целиком через beginResetModel()/endResetModel().
- */
 bool MyModel::loadFromTsv(const QString& fileName, QString* error)
 {
     QFile file(fileName);
@@ -493,8 +363,55 @@ bool MyModel::loadFromTsv(const QString& fileName, QString* error)
         if (error) *error = file.errorString();
         return false;
     }
+    return loadFromTsv(static_cast<QIODevice&>(file), error);
+}
 
-    QTextStream stream(&file);
+// -------------------- save/load via QIODevice --------------------
+
+bool MyModel::saveToTsv(QIODevice& out, QString* error) const
+{
+    if (!out.isOpen() || !(out.openMode() & QIODevice::WriteOnly))
+    {
+        if (error) *error = "Output device is not opened for writing";
+        return false;
+    }
+
+    QTextStream stream(&out);
+
+    for (const MyRect& r : m_items)
+    {
+        QStringList fields;
+        fields.reserve(kColCountInt);
+
+        fields << r.penColor.name();
+        fields << penStyleToString(r.penStyle);
+        fields << QString::number(r.penWidth);
+        fields << QString::number(r.left);
+        fields << QString::number(r.top);
+        fields << QString::number(r.width);
+        fields << QString::number(r.height);
+
+        stream << fields.join('\t') << '\n';
+    }
+
+    if (stream.status() != QTextStream::Ok)
+    {
+        if (error) *error = "Failed to write TSV stream";
+        return false;
+    }
+
+    return true;
+}
+
+bool MyModel::loadFromTsv(QIODevice& in, QString* error)
+{
+    if (!in.isOpen() || !(in.openMode() & QIODevice::ReadOnly))
+    {
+        if (error) *error = "Input device is not opened for reading";
+        return false;
+    }
+
+    QTextStream stream(&in);
 
     QVector<MyRect> tmp;
     int lineNo = 0;
@@ -508,19 +425,18 @@ bool MyModel::loadFromTsv(const QString& fileName, QString* error)
             continue;
 
         const QStringList parts = line.split('\t', Qt::KeepEmptyParts);
-        if (parts.size() != columnCountValue())
+        if (parts.size() != kColCountInt)
         {
             if (error)
             {
                 *error = QString("Line %1: expected %2 fields, got %3")
                              .arg(lineNo)
-                             .arg(columnCountValue())
+                             .arg(kColCountInt)
                              .arg(parts.size());
             }
             return false;
         }
 
-        // PenColor: "#RRGGBB"
         const QColor color(parts[0].trimmed());
         if (!color.isValid())
         {
@@ -528,7 +444,6 @@ bool MyModel::loadFromTsv(const QString& fileName, QString* error)
             return false;
         }
 
-        // PenStyle: "Qt::DotLine" / "3" / "Qt::PenStyle(3)"
         bool styleOk = false;
         const Qt::PenStyle style = penStyleFromString(parts[1], &styleOk);
         if (!styleOk)
@@ -537,10 +452,10 @@ bool MyModel::loadFromTsv(const QString& fileName, QString* error)
             return false;
         }
 
-        auto parseInt = [&](const QString& s, const char* fieldName, int& out) -> bool
+        auto parseInt = [&](const QString& s, const char* fieldName, int& outVal) -> bool
         {
             bool ok = false;
-            out = s.trimmed().toInt(&ok);
+            outVal = s.trimmed().toInt(&ok);
             if (!ok)
             {
                 if (error)
