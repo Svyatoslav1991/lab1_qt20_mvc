@@ -9,8 +9,22 @@
 #include <QIODevice>
 #include <QtGlobal>
 
-// -------------------- helpers: PenStyle <-> string --------------------
+/**
+ * @name Вспомогательные функции: Qt::PenStyle <-> строка
+ * @{
+ */
 
+/**
+ * @brief Преобразует Qt::PenStyle в человекочитаемую строку.
+ *
+ * @details
+ * Используется для:
+ * - отображения (Qt::DisplayRole), чтобы в таблице было "Qt::DotLine", а не "3";
+ * - сохранения в TSV, чтобы файл был читаем человеком.
+ *
+ * @param style Значение Qt::PenStyle.
+ * @return Строка вида "Qt::DotLine" или "Qt::PenStyle(N)" для неизвестных значений.
+ */
 QString MyModel::penStyleToString(Qt::PenStyle style)
 {
     switch (style)
@@ -26,6 +40,19 @@ QString MyModel::penStyleToString(Qt::PenStyle style)
     }
 }
 
+/**
+ * @brief Разбирает Qt::PenStyle из строки.
+ *
+ * @details
+ * Поддерживаем устойчивый парсинг:
+ * 1) число ("3")
+ * 2) "Qt::PenStyle(3)"
+ * 3) полное имя ("Qt::DotLine")
+ *
+ * @param s Входная строка.
+ * @param ok Если не nullptr, сюда пишется успешность парсинга.
+ * @return Значение Qt::PenStyle. Если парсинг не удался — возвращается Qt::SolidLine как fallback.
+ */
 Qt::PenStyle MyModel::penStyleFromString(const QString& s, bool* ok)
 {
     const QString t = s.trimmed();
@@ -76,6 +103,17 @@ Qt::PenStyle MyModel::penStyleFromString(const QString& s, bool* ok)
     return Qt::SolidLine;
 }
 
+/**
+ * @brief Возвращает роли, которые следует указать в dataChanged для данного столбца.
+ *
+ * @details
+ * - Для PenColor меняется и отображаемый текст (DisplayRole), и редактируемое значение (EditRole),
+ *   и иконка (DecorationRole).
+ * - Для остальных столбцов достаточно DisplayRole + EditRole.
+ *
+ * @param c Семантический столбец.
+ * @return QVector<int> с Qt::ItemDataRole значениями.
+ */
 QVector<int> MyModel::changedRolesForColumn(Column c)
 {
     if (c == Column::PenColor)
@@ -84,14 +122,28 @@ QVector<int> MyModel::changedRolesForColumn(Column c)
     return { Qt::DisplayRole, Qt::EditRole };
 }
 
+/** @} */
+
 // -------------------- ctor / basic --------------------
 
+/**
+ * @brief Конструктор модели.
+ *
+ * @details
+ * static_assert гарантирует согласованность:
+ * - количество элементов kColumns
+ * - и значение Column::Count
+ * на этапе компиляции.
+ */
 MyModel::MyModel(QObject* parent)
     : QAbstractTableModel(parent)
 {
     static_assert(kColumns.size() == kColCount, "kColumns must match Column::Count");
 }
 
+/**
+ * @brief Количество строк.
+ */
 int MyModel::rowCount(const QModelIndex& parent) const
 {
     if (parent.isValid())
@@ -99,6 +151,9 @@ int MyModel::rowCount(const QModelIndex& parent) const
     return m_items.size();
 }
 
+/**
+ * @brief Количество столбцов.
+ */
 int MyModel::columnCount(const QModelIndex& parent) const
 {
     if (parent.isValid())
@@ -106,6 +161,9 @@ int MyModel::columnCount(const QModelIndex& parent) const
     return kColCountInt;
 }
 
+/**
+ * @brief Заголовки таблицы.
+ */
 QVariant MyModel::headerData(int section, Qt::Orientation orientation, int role) const
 {
     if (role != Qt::DisplayRole)
@@ -121,19 +179,31 @@ QVariant MyModel::headerData(int section, Qt::Orientation orientation, int role)
     return section + 1;
 }
 
+/**
+ * @brief Изменение заголовков.
+ *
+ * @details
+ * Заголовки фиксированы и редактирование отключено.
+ */
 bool MyModel::setHeaderData(int, Qt::Orientation, const QVariant&, int)
 {
-    // Заголовки фиксированы (kColumns).
     return false;
 }
 
+/**
+ * @brief Флаги элемента.
+ */
 Qt::ItemFlags MyModel::flags(const QModelIndex& index) const
 {
     if (!index.isValid())
         return Qt::NoItemFlags;
+
     return QAbstractTableModel::flags(index) | Qt::ItemIsEditable;
 }
 
+/**
+ * @brief Вставка строк.
+ */
 bool MyModel::insertRows(int row, int count, const QModelIndex& parent)
 {
     if (parent.isValid() || count <= 0)
@@ -151,6 +221,9 @@ bool MyModel::insertRows(int row, int count, const QModelIndex& parent)
 
 // -------------------- data / setData --------------------
 
+/**
+ * @brief Данные ячейки по роли.
+ */
 QVariant MyModel::data(const QModelIndex& index, int role) const
 {
     if (!index.isValid())
@@ -209,6 +282,9 @@ QVariant MyModel::data(const QModelIndex& index, int role) const
     return {};
 }
 
+/**
+ * @brief Установка данных (редактирование).
+ */
 bool MyModel::setData(const QModelIndex& index, const QVariant& value, int role)
 {
     if (!index.isValid() || role != Qt::EditRole)
@@ -320,6 +396,9 @@ bool MyModel::setData(const QModelIndex& index, const QVariant& value, int role)
 
 // -------------------- slotAddData / test --------------------
 
+/**
+ * @brief Добавление строки в конец модели.
+ */
 void MyModel::slotAddData(const MyRect& rect)
 {
     const int row = m_items.size();
@@ -336,6 +415,9 @@ void MyModel::slotAddData(const MyRect& rect)
                      {Qt::DisplayRole, Qt::EditRole, Qt::DecorationRole});
 }
 
+/**
+ * @brief Тестовые данные.
+ */
 void MyModel::test()
 {
     slotAddData(MyRect(QColor(Qt::red),   Qt::SolidLine, 2, 100, 100, 100, 100));
@@ -344,6 +426,9 @@ void MyModel::test()
 
 // -------------------- save/load wrappers by filename --------------------
 
+/**
+ * @brief Сохранение TSV по имени файла.
+ */
 bool MyModel::saveToTsv(const QString& fileName, QString* error) const
 {
     QFile file(fileName);
@@ -355,6 +440,9 @@ bool MyModel::saveToTsv(const QString& fileName, QString* error) const
     return saveToTsv(static_cast<QIODevice&>(file), error);
 }
 
+/**
+ * @brief Загрузка TSV по имени файла.
+ */
 bool MyModel::loadFromTsv(const QString& fileName, QString* error)
 {
     QFile file(fileName);
@@ -368,11 +456,14 @@ bool MyModel::loadFromTsv(const QString& fileName, QString* error)
 
 // -------------------- save/load via QIODevice --------------------
 
+/**
+ * @brief Сохранение TSV в произвольное устройство вывода.
+ */
 bool MyModel::saveToTsv(QIODevice& out, QString* error) const
 {
     if (!out.isOpen() || !(out.openMode() & QIODevice::WriteOnly))
     {
-        if (error) *error = "Output device is not opened for writing";
+        if (error) *error = "Устройство вывода не открыто на запись";
         return false;
     }
 
@@ -396,18 +487,21 @@ bool MyModel::saveToTsv(QIODevice& out, QString* error) const
 
     if (stream.status() != QTextStream::Ok)
     {
-        if (error) *error = "Failed to write TSV stream";
+        if (error) *error = "Ошибка записи TSV-потока";
         return false;
     }
 
     return true;
 }
 
+/**
+ * @brief Загрузка TSV из произвольного устройства ввода.
+ */
 bool MyModel::loadFromTsv(QIODevice& in, QString* error)
 {
     if (!in.isOpen() || !(in.openMode() & QIODevice::ReadOnly))
     {
-        if (error) *error = "Input device is not opened for reading";
+        if (error) *error = "Устройство ввода не открыто на чтение";
         return false;
     }
 
@@ -429,7 +523,7 @@ bool MyModel::loadFromTsv(QIODevice& in, QString* error)
         {
             if (error)
             {
-                *error = QString("Line %1: expected %2 fields, got %3")
+                *error = QString("Строка %1: ожидалось %2 полей, получено %3")
                              .arg(lineNo)
                              .arg(kColCountInt)
                              .arg(parts.size());
@@ -440,7 +534,7 @@ bool MyModel::loadFromTsv(QIODevice& in, QString* error)
         const QColor color(parts[0].trimmed());
         if (!color.isValid())
         {
-            if (error) *error = QString("Line %1: invalid color '%2'").arg(lineNo).arg(parts[0]);
+            if (error) *error = QString("Строка %1: некорректный цвет '%2'").arg(lineNo).arg(parts[0]);
             return false;
         }
 
@@ -448,7 +542,7 @@ bool MyModel::loadFromTsv(QIODevice& in, QString* error)
         const Qt::PenStyle style = penStyleFromString(parts[1], &styleOk);
         if (!styleOk)
         {
-            if (error) *error = QString("Line %1: invalid pen style '%2'").arg(lineNo).arg(parts[1]);
+            if (error) *error = QString("Строка %1: некорректный стиль пера '%2'").arg(lineNo).arg(parts[1]);
             return false;
         }
 
@@ -460,7 +554,7 @@ bool MyModel::loadFromTsv(QIODevice& in, QString* error)
             {
                 if (error)
                 {
-                    *error = QString("Line %1: invalid %2 '%3'")
+                    *error = QString("Строка %1: некорректное поле %2 '%3'")
                                  .arg(lineNo)
                                  .arg(fieldName)
                                  .arg(s);
