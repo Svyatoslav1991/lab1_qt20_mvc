@@ -21,6 +21,8 @@ add_executable(lab1_Qt20_MVC
     mainwindow.h
     mainwindow.ui
     myrect.h
+    mymodel.h
+    mymodel.cpp
     )
 
 target_link_libraries(lab1_Qt20_MVC PRIVATE Qt5::Widgets)
