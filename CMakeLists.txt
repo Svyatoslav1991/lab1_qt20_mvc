@@ -23,6 +23,8 @@ add_executable(lab1_Qt20_MVC
     myrect.h
     mymodel.h
     mymodel.cpp
+    mydelegate.cpp
+    mydelegate.h
     )
 
 target_link_libraries(lab1_Qt20_MVC PRIVATE Qt5::Widgets)
