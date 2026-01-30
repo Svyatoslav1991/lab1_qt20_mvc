@@ -1,5 +1,6 @@
 #include "mymodel.h"
 
+#include <QColor>
 #include <QIcon>
 #include <QPixmap>
 #include <QtGlobal>
@@ -56,12 +57,12 @@ int MyModel::columnCount(const QModelIndex& parent) const
  * @brief Возвращает данные по индексу и роли.
  *
  * Роли:
- * - Qt::DisplayRole:
+ * - Qt::DisplayRole / Qt::EditRole:
  *   - PenColor: строка "#RRGGBB"
  *   - PenStyle: int (static_cast<int>(Qt::PenStyle))
  *   - остальные параметры: int
  * - Qt::DecorationRole:
- *   - PenColor: QIcon с заливкой цветом пера
+ *   - PenColor: QIcon с заливкой цветом пера (32x32)
  *
  * @param index Индекс ячейки (строка/столбец).
  * @param role Роль запрашиваемых данных.
@@ -69,11 +70,9 @@ int MyModel::columnCount(const QModelIndex& parent) const
  */
 QVariant MyModel::data(const QModelIndex& index, int role) const
 {
-    // 1) проверка индекса
     if (!index.isValid())
         return {};
 
-    // 2) координаты ячейки
     const int row = index.row();
     const int col = index.column();
 
@@ -85,13 +84,12 @@ QVariant MyModel::data(const QModelIndex& index, int role) const
     const MyRect& r = m_vector[row];
     const Column column = static_cast<Column>(col);
 
-    // DisplayRole — текст/числа
-    if (role == Qt::DisplayRole)
+    // Для редактирования обычно возвращаем то же значение, что и для отображения
+    if (role == Qt::DisplayRole || role == Qt::EditRole)
     {
         switch (column)
         {
         case Column::PenColor:
-            // Текстовое представление цвета (иконка даётся отдельно через DecorationRole)
             return r.penColor.name(); // "#RRGGBB"
 
         case Column::PenStyle:
@@ -119,6 +117,83 @@ QVariant MyModel::data(const QModelIndex& index, int role) const
     }
 
     return {};
+}
+
+/**
+ * @brief Устанавливает данные для ячейки (редактирование).
+ *
+ * Обрабатывается только роль Qt::EditRole.
+ * Сохраняет значение в контейнер m_vector.
+ * После изменения генерирует dataChanged(index, index) для обновления представлений.
+ *
+ * @param index Индекс ячейки.
+ * @param value Новое значение (QVariant).
+ * @param role Роль (должна быть Qt::EditRole).
+ * @return true при успешном изменении данных, иначе false.
+ */
+bool MyModel::setData(const QModelIndex& index, const QVariant& value, int role)
+{
+    if (!index.isValid())
+        return false;
+
+    if (role != Qt::EditRole)
+        return false;
+
+    const int row = index.row();
+    const int col = index.column();
+
+    if (row < 0 || row >= m_vector.size())
+        return false;
+    if (col < 0 || col >= columnCountValue())
+        return false;
+
+    MyRect& r = m_vector[row];
+    const Column column = static_cast<Column>(col);
+
+    switch (column)
+    {
+    case Column::PenColor:
+    {
+        // Ожидаем строку "#RRGGBB" / "RRGGBB" / именованный цвет ("red") — QColor сам разбирает
+        const QString s = value.toString().trimmed();
+        const QColor c(s);
+        if (!c.isValid())
+            return false;
+
+        r.penColor = c;
+        break;
+    }
+    case Column::PenStyle:
+    {
+        // Пока редактируем через int (делегат по умолчанию даст SpinBox)
+        const int styleInt = value.toInt();
+        r.penStyle = static_cast<Qt::PenStyle>(styleInt);
+        break;
+    }
+    case Column::PenWidth:
+        r.penWidth = value.toInt();
+        break;
+
+    case Column::Left:
+        r.left = value.toInt();
+        break;
+    case Column::Top:
+        r.top = value.toInt();
+        break;
+    case Column::Width:
+        r.width = value.toInt();
+        break;
+    case Column::Height:
+        r.height = value.toInt();
+        break;
+
+    case Column::Count:
+        return false;
+    }
+
+    // Изменился один элемент
+    emit dataChanged(index, index);
+    return true;
 }
 
 /**
@@ -197,7 +272,6 @@ bool MyModel::insertRows(int row, int count, const QModelIndex& parent)
     if (count <= 0)
         return false;
 
-    // Нормализуем позицию вставки
     if (row < 0)
         row = 0;
     if (row > m_vector.size())
@@ -216,18 +290,17 @@ bool MyModel::insertRows(int row, int count, const QModelIndex& parent)
 /**
  * @brief Возвращает флаги элемента модели.
  *
- * Сейчас элементы:
- * - доступны (Qt::ItemIsEnabled)
- * - выбираемы (Qt::ItemIsSelectable)
+ * Флаги описывают свойства элемента и определяют его поведение в View.
+ * Для разрешения редактирования добавляем Qt::ItemIsEditable к флагам базового класса.
  *
- * Редактирование не включено (Qt::ItemIsEditable не возвращается).
+ * Важно: флаги берём из QAbstractTableModel::flags(index), иначе возможна рекурсия.
  */
 Qt::ItemFlags MyModel::flags(const QModelIndex& index) const
 {
     if (!index.isValid())
         return Qt::NoItemFlags;
 
-    return Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+    return QAbstractTableModel::flags(index) | Qt::ItemIsEditable;
 }
 
 /**
@@ -242,14 +315,11 @@ void MyModel::slotAddData(const MyRect& rect)
 {
     const int row = m_vector.size();
 
-    // 1) добавляем одну строку в конец
     if (!insertRows(row, 1))
         return;
 
-    // 2) заполняем данными
     m_vector[row] = rect;
 
-    // 3) уведомляем представления, что данные в строке обновились
     const QModelIndex leftTop = index(row, 0);
     const QModelIndex rightBottom = index(row, columnCountValue() - 1);
     emit dataChanged(leftTop, rightBottom);
@@ -259,7 +329,7 @@ void MyModel::slotAddData(const MyRect& rect)
  * @brief Заполняет модель тестовыми данными.
  *
  * Используется для отладки корректности отображения (QTableView) и ролей
- * (DisplayRole + DecorationRole для цвета).
+ * (DisplayRole/EditRole + DecorationRole для цвета).
  */
 void MyModel::test()
 {

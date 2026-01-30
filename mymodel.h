@@ -45,12 +45,12 @@ public:
     /**
      * @brief Возвращает данные ячейки по индексу и роли.
      * @param index Индекс (строка/столбец).
-     * @param role Роль данных (Qt::DisplayRole, Qt::DecorationRole и т.д.).
+     * @param role Роль данных (Qt::DisplayRole, Qt::EditRole, Qt::DecorationRole и т.д.).
      *
      * Реализовано:
-     * - Qt::DisplayRole:
-     *   - PenColor: строка вида "#RRGGBB"
-     *   - PenStyle: целое число (static_cast<int>(Qt::PenStyle)), т.к. QVariant не хранит Qt::PenStyle напрямую
+     * - Qt::DisplayRole / Qt::EditRole:
+     *   - PenColor: строка вида "#RRGGBB" (QColor::name())
+     *   - PenStyle: int (static_cast<int>(Qt::PenStyle)), т.к. QVariant не хранит Qt::PenStyle напрямую
      *   - остальные параметры: int
      * - Qt::DecorationRole (только PenColor): цветная пиктограмма (QIcon) 32x32.
      *
@@ -60,13 +60,28 @@ public:
                   int role = Qt::DisplayRole) const override;
 
     /**
+     * @brief Устанавливает данные для ячейки (используется при редактировании).
+     * @param index Индекс ячейки.
+     * @param value Новое значение (QVariant).
+     * @param role Роль (обрабатывается только Qt::EditRole).
+     *
+     * Сохраняет значение в контейнер m_vector и уведомляет представления
+     * сигналом dataChanged(index, index).
+     *
+     * @return true при успешном изменении данных, иначе false.
+     */
+    bool setData(const QModelIndex& index,
+                 const QVariant& value,
+                 int role = Qt::EditRole) override;
+
+    /**
      * @brief Возвращает заголовок секции (строки/столбца) по orientation.
      * @param section Номер секции.
      * @param orientation Qt::Horizontal или Qt::Vertical.
      * @param role Роль данных (используется Qt::DisplayRole).
      *
      * Горизонтальные заголовки берутся из m_headerData,
-     * вертикальные — нумерация строк (0..N-1) или (1..N) — здесь используется 1..N.
+     * вертикальные — нумерация строк (1..N).
      */
     QVariant headerData(int section,
                         Qt::Orientation orientation,
@@ -108,8 +123,8 @@ public:
      * @brief Возвращает флаги элемента модели.
      * @param index Индекс элемента.
      *
-     * Сейчас элементы только выбираемые и доступные (без редактирования).
-     * Позже можно добавить Qt::ItemIsEditable.
+     * Добавляет Qt::ItemIsEditable ко флагам базового класса, чтобы разрешить редактирование
+     * всех ячеек таблицы.
      */
     Qt::ItemFlags flags(const QModelIndex& index) const override;
 
@@ -140,7 +155,7 @@ private:
     enum class Column : int
     {
         PenColor = 0, ///< Цвет пера (QColor)
-        PenStyle,     ///< Стиль пера (Qt::PenStyle -> int в DisplayRole)
+        PenStyle,     ///< Стиль пера (Qt::PenStyle -> int)
         PenWidth,     ///< Толщина пера (int)
         Left,         ///< X координата (int)
         Top,          ///< Y координата (int)
