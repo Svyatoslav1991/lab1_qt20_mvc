@@ -7,7 +7,8 @@
 /**
  * @brief Конструктор модели.
  *
- * Формирует заголовки столбцов. Проверяет согласованность размера заголовков с числом столбцов.
+ * Формирует заголовки столбцов (m_headerData) в порядке, соответствующем enum Column.
+ * Проверяет согласованность количества заголовков с числом столбцов модели.
  */
 MyModel::MyModel(QObject* parent)
     : QAbstractTableModel(parent)
@@ -25,6 +26,12 @@ MyModel::MyModel(QObject* parent)
     Q_ASSERT(m_headerData.size() == columnCountValue());
 }
 
+/**
+ * @brief Возвращает количество строк модели.
+ *
+ * Для табличной модели дочерних элементов нет, поэтому при parent.isValid()
+ * возвращаем 0.
+ */
 int MyModel::rowCount(const QModelIndex& parent) const
 {
     if (parent.isValid())
@@ -32,6 +39,12 @@ int MyModel::rowCount(const QModelIndex& parent) const
     return m_vector.size();
 }
 
+/**
+ * @brief Возвращает количество столбцов модели.
+ *
+ * Для табличной модели дочерних элементов нет, поэтому при parent.isValid()
+ * возвращаем 0.
+ */
 int MyModel::columnCount(const QModelIndex& parent) const
 {
     if (parent.isValid())
@@ -39,6 +52,21 @@ int MyModel::columnCount(const QModelIndex& parent) const
     return columnCountValue();
 }
 
+/**
+ * @brief Возвращает данные по индексу и роли.
+ *
+ * Роли:
+ * - Qt::DisplayRole:
+ *   - PenColor: строка "#RRGGBB"
+ *   - PenStyle: int (static_cast<int>(Qt::PenStyle))
+ *   - остальные параметры: int
+ * - Qt::DecorationRole:
+ *   - PenColor: QIcon с заливкой цветом пера
+ *
+ * @param index Индекс ячейки (строка/столбец).
+ * @param role Роль запрашиваемых данных.
+ * @return Данные в виде QVariant или пустой QVariant при ошибке/неподдерживаемой роли.
+ */
 QVariant MyModel::data(const QModelIndex& index, int role) const
 {
     // 1) проверка индекса
@@ -93,6 +121,14 @@ QVariant MyModel::data(const QModelIndex& index, int role) const
     return {};
 }
 
+/**
+ * @brief Возвращает заголовки строк/столбцов.
+ *
+ * - Для Qt::Horizontal: берётся строка из m_headerData по номеру секции.
+ * - Для Qt::Vertical: возвращается номер строки в человекочитаемом виде (1..N).
+ *
+ * Заголовки предоставляются только для Qt::DisplayRole.
+ */
 QVariant MyModel::headerData(int section, Qt::Orientation orientation, int role) const
 {
     if (role != Qt::DisplayRole)
@@ -109,6 +145,17 @@ QVariant MyModel::headerData(int section, Qt::Orientation orientation, int role)
     return section + 1;
 }
 
+/**
+ * @brief Устанавливает заголовок столбца (только горизонтальный).
+ *
+ * Допускается только для:
+ * - orientation == Qt::Horizontal
+ * - role == Qt::EditRole
+ *
+ * При успешном изменении генерирует headerDataChanged().
+ *
+ * @return true, если заголовок изменён; иначе false.
+ */
 bool MyModel::setHeaderData(int section,
                             Qt::Orientation orientation,
                             const QVariant& value,
@@ -128,6 +175,20 @@ bool MyModel::setHeaderData(int section,
     return true;
 }
 
+/**
+ * @brief Вставляет строки в модель.
+ *
+ * Увеличивает контейнер данных m_vector на count элементов MyRect (по умолчанию),
+ * начиная с позиции row.
+ *
+ * Важно: beginInsertRows()/endInsertRows() обязательны для сохранения целостности
+ * модели и уведомления всех представлений.
+ *
+ * @param row Позиция вставки (нормализуется в диапазон [0..rowCount()]).
+ * @param count Количество вставляемых строк (>0).
+ * @param parent Родительский индекс (для таблицы должен быть невалидным).
+ * @return true при успешной вставке, иначе false.
+ */
 bool MyModel::insertRows(int row, int count, const QModelIndex& parent)
 {
     if (parent.isValid())
@@ -152,6 +213,15 @@ bool MyModel::insertRows(int row, int count, const QModelIndex& parent)
     return true;
 }
 
+/**
+ * @brief Возвращает флаги элемента модели.
+ *
+ * Сейчас элементы:
+ * - доступны (Qt::ItemIsEnabled)
+ * - выбираемы (Qt::ItemIsSelectable)
+ *
+ * Редактирование не включено (Qt::ItemIsEditable не возвращается).
+ */
 Qt::ItemFlags MyModel::flags(const QModelIndex& index) const
 {
     if (!index.isValid())
@@ -160,6 +230,14 @@ Qt::ItemFlags MyModel::flags(const QModelIndex& index) const
     return Qt::ItemIsEnabled | Qt::ItemIsSelectable;
 }
 
+/**
+ * @brief Добавляет одну строку данных (rect) в конец модели.
+ *
+ * Алгоритм:
+ * 1) insertRows(rowCount(), 1)
+ * 2) запись rect в m_vector для добавленной строки
+ * 3) dataChanged() для обновления отображения (в т.ч. иконки цвета)
+ */
 void MyModel::slotAddData(const MyRect& rect)
 {
     const int row = m_vector.size();
@@ -177,6 +255,12 @@ void MyModel::slotAddData(const MyRect& rect)
     emit dataChanged(leftTop, rightBottom);
 }
 
+/**
+ * @brief Заполняет модель тестовыми данными.
+ *
+ * Используется для отладки корректности отображения (QTableView) и ролей
+ * (DisplayRole + DecorationRole для цвета).
+ */
 void MyModel::test()
 {
     slotAddData(MyRect(QColor(Qt::red),   Qt::SolidLine, 2, 100, 100, 100, 100));

@@ -9,7 +9,9 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_model = new MyModel(this);
     ui->tableView->setModel(m_model);
-    m_model->insertRows(0, 3); // добавим 3 прямоугольника
+
+    // Заполняем модель тестовыми данными (через slotAddData внутри test()).
+    m_model->test();
 }
 
 MainWindow::~MainWindow()
