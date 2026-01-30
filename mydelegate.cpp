@@ -154,23 +154,37 @@ bool MyDelegate::editorEvent(QEvent* event,
                             const QStyleOptionViewItem& option,
                             const QModelIndex& index)
 {
-    // Работаем только с валидным индексом, существующей моделью и нужным столбцом (PenColor).
+    /**
+     * Шаг 1. Ранний выход для всех случаев, которые нас не интересуют:
+     * - невалидный индекс;
+     * - отсутствует модель (nullptr);
+     * - клик не в столбце PenColor.
+     *
+     * В этих случаях отдаём обработку базовому классу.
+     */
     if (!index.isValid() || !model || index.column() != kPenColorColumn)
         return QStyledItemDelegate::editorEvent(event, model, option, index);
 
-    // Реагируем только на двойной клик мышью.
+    /**
+     * Шаг 2. Нас интересует только двойной клик мышью.
+     * Все остальные события (наведение, одиночный клик и т.п.) — базовой обработке.
+     */
     if (event->type() != QEvent::MouseButtonDblClick)
         return QStyledItemDelegate::editorEvent(event, model, option, index);
 
-    // Безопасно приводим к QMouseEvent (мы уже проверили type()).
+    /**
+     * Шаг 3. Приведение QEvent к QMouseEvent безопасно, так как мы уже проверили type().
+     * Затем проверяем, что двойной клик был ЛКМ (LeftButton).
+     */
     auto* me = static_cast<QMouseEvent*>(event);
-
-    // Нас интересует только двойной клик ЛКМ.
     if (me->button() != Qt::LeftButton)
         return QStyledItemDelegate::editorEvent(event, model, option, index);
 
-    // Текущий цвет лучше брать из EditRole: модель должна отдавать QColor (идеально),
-    // но на всякий случай поддержим и строку "#RRGGBB".
+    /**
+     * Шаг 4. Получаем текущий цвет из модели.
+     * Мы просим Qt::EditRole, потому что это “машинное” значение для редакторов/делегатов.
+     * В идеале модель вернёт QColor, но на всякий случай поддержим и строковый вариант.
+     */
     const QVariant cur = model->data(index, Qt::EditRole);
 
     QColor currentColor;
@@ -179,18 +193,39 @@ bool MyDelegate::editorEvent(QEvent* event,
     else
         currentColor = QColor(cur.toString().trimmed());
 
-    // Родитель для диалога: лучше привязать к виджету представления, если он известен.
+    /**
+     * Шаг 5. Определяем родителя для диалога.
+     * option.widget — это виджет представления, через который пришло событие (обычно QTableView).
+     * Привязка диалога к этому родителю улучшает UX:
+     * - диалог будет поверх правильного окна,
+     * - корректная модальность,
+     * - корректное позиционирование.
+     */
     QWidget* parentWidget = option.widget ? const_cast<QWidget*>(option.widget) : nullptr;
 
+    /**
+     * Шаг 6. Открываем стандартный диалог выбора цвета.
+     * В качестве “начального” цвета передаём текущий цвет, чтобы пользователь видел текущее значение.
+     */
     const QColor selectedColor =
         QColorDialog::getColor(currentColor, parentWidget, "Select pen color");
 
-    // Если пользователь отменил диалог — событие считаем обработанным, но ничего не меняем.
+    /**
+     * Шаг 7. Если диалог отменён (цвет невалидный) — считаем событие обработанным,
+     * но ничего в модель не записываем.
+     */
     if (!selectedColor.isValid())
         return true;
 
-    // Сохраняем выбранный цвет в модель (модель должна уметь принимать QColor в setData()).
+    /**
+     * Шаг 8. Записываем выбранный цвет в модель.
+     * Модель должна обработать Qt::EditRole и сохранить QColor в соответствующее поле.
+     */
     model->setData(index, selectedColor, Qt::EditRole);
+
+    /**
+     * Возвращаем true: мы обработали событие и не хотим, чтобы Qt делал что-то ещё с этим кликом.
+     */
     return true;
 }
 

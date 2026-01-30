@@ -3,6 +3,7 @@
 
 #include <QMainWindow>
 #include "mymodel.h"
+#include "mydelegate.h"   // + делегат
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -18,6 +19,7 @@ public:
 
 private:
     Ui::MainWindow *ui;
-    MyModel* m_model = nullptr;
+    MyModel*     m_model    = nullptr;
+    MyDelegate*  m_delegate = nullptr; // + делегат
 };
 #endif // MAINWINDOW_H
