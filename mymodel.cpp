@@ -6,15 +6,59 @@
 #include <QtGlobal>
 
 /**
- * @brief Конструктор модели.
+ * @brief Преобразует значение Qt::PenStyle в человекочитаемую строку.
  *
- * Формирует заголовки столбцов (m_headerData) в порядке, соответствующем enum Column.
- * Проверяет согласованность количества заголовков с числом столбцов модели.
+ * @details
+ * В таблице (QTableView) для роли Qt::DisplayRole мы хотим показывать пользователю
+ * не числовое значение перечисления, а понятный текст вида "Qt::DotLine".
+ *
+ * При этом для редактирования (Qt::EditRole) мы продолжаем использовать int,
+ * потому что:
+ *  - QVariant не обязан “прозрачно” хранить Qt::PenStyle как отдельный тип,
+ *  - наш делегат (QComboBox) опирается на userData/findData, где значения удобно хранить как int.
+ *
+ * @param style Значение стиля пера.
+ * @return Строковое представление стиля:
+ *         - для известных значений: строгое имя перечисления ("Qt::SolidLine" и т.п.);
+ *         - для неизвестных/неожиданных: "Qt::PenStyle(<число>)".
+ *
+ * @note
+ * Это **только** представление для отображения (DisplayRole). Для хранения/редактирования
+ * используется исходное значение (EditRole).
+ */
+QString MyModel::penStyleToString(Qt::PenStyle style)
+{
+    switch (style)
+    {
+    case Qt::NoPen:          return "Qt::NoPen";
+    case Qt::SolidLine:      return "Qt::SolidLine";
+    case Qt::DashLine:       return "Qt::DashLine";
+    case Qt::DotLine:        return "Qt::DotLine";
+    case Qt::DashDotLine:    return "Qt::DashDotLine";
+    case Qt::DashDotDotLine: return "Qt::DashDotDotLine";
+    default:
+        // На случай расширений/нестандартных значений — безопасный fallback.
+        return QString("Qt::PenStyle(%1)").arg(static_cast<int>(style));
+    }
+}
+
+/**
+ * @brief Конструктор табличной модели MyModel.
+ *
+ * @details
+ * 1) Инициализирует список заголовков столбцов @ref m_headerData.
+ * 2) Проверяет, что число заголовков совпадает с количеством столбцов,
+ *    определённым перечислением Column.
+ *
+ * @param parent Родительский QObject.
+ *
+ * @note
+ * Проверка через Q_ASSERT — отладочная (работает в debug-сборках). Она помогает
+ * быстро обнаружить рассогласование при изменениях Column/заголовков.
  */
 MyModel::MyModel(QObject* parent)
     : QAbstractTableModel(parent)
 {
-    // Заголовки — как рекомендует методичка
     m_headerData
         << "PenColor"
         << "PenStyle"
@@ -30,8 +74,13 @@ MyModel::MyModel(QObject* parent)
 /**
  * @brief Возвращает количество строк модели.
  *
- * Для табличной модели дочерних элементов нет, поэтому при parent.isValid()
- * возвращаем 0.
+ * @details
+ * Для QAbstractTableModel мы используем “плоскую” таблицу без иерархии.
+ * Поэтому при наличии валидного parent (т.е. когда View спрашивает о “дочерних”
+ * элементах) возвращаем 0.
+ *
+ * @param parent Родительский индекс (должен быть невалидным для таблицы).
+ * @return Количество элементов в @ref m_vector.
  */
 int MyModel::rowCount(const QModelIndex& parent) const
 {
@@ -43,8 +92,12 @@ int MyModel::rowCount(const QModelIndex& parent) const
 /**
  * @brief Возвращает количество столбцов модели.
  *
- * Для табличной модели дочерних элементов нет, поэтому при parent.isValid()
+ * @details
+ * Аналогично rowCount(): модель не имеет иерархии, поэтому при валидном parent
  * возвращаем 0.
+ *
+ * @param parent Родительский индекс (должен быть невалидным для таблицы).
+ * @return Число столбцов, определяемое Column::Count.
  */
 int MyModel::columnCount(const QModelIndex& parent) const
 {
@@ -54,61 +107,108 @@ int MyModel::columnCount(const QModelIndex& parent) const
 }
 
 /**
- * @brief Возвращает данные по индексу и роли.
+ * @brief Возвращает данные ячейки по индексу и роли (основной “API” модели для View).
  *
- * Роли:
- * - Qt::DisplayRole / Qt::EditRole:
- *   - PenColor: строка "#RRGGBB"
- *   - PenStyle: int (static_cast<int>(Qt::PenStyle))
- *   - остальные параметры: int
- * - Qt::DecorationRole:
- *   - PenColor: QIcon с заливкой цветом пера (32x32)
+ * @details
+ * QTableView (и делегаты) многократно вызывают data() для разных ролей.
+ * В рамках архитектуры Model/View Qt одна и та же ячейка может запрашиваться
+ * в разных “представлениях”:
  *
- * @param index Индекс ячейки (строка/столбец).
- * @param role Роль запрашиваемых данных.
- * @return Данные в виде QVariant или пустой QVariant при ошибке/неподдерживаемой роли.
+ * - Qt::DisplayRole: то, что показываем пользователю (текст/числа).
+ * - Qt::EditRole: то, что отдаём редактору/делегату при редактировании.
+ * - Qt::DecorationRole: иконка/пиктограмма (например, для отображения цвета).
+ *
+ * В нашем приложении:
+ * - Для PenColor:
+ *   - DisplayRole: строка "#RRGGBB" (QColor::name()) — удобно видеть и копировать.
+ *   - EditRole: QColor — удобно для QColorDialog в делегате.
+ *   - DecorationRole: QIcon (32x32) закрашенный нужным цветом.
+ *
+ * - Для PenStyle:
+ *   - DisplayRole: строка "Qt::DotLine" и т.п. (через penStyleToString()).
+ *   - EditRole: int(Qt::PenStyle), потому что ComboBox хранит userData как int.
+ *
+ * - Для остальных числовых столбцов:
+ *   - DisplayRole/EditRole: int.
+ *
+ * @param index Модельный индекс (строка/столбец).
+ * @param role Роль данных.
+ * @return QVariant с данными для указанного role или пустой QVariant ({}),
+ *         если индекс некорректен или роль не поддерживается.
+ *
+ * @note
+ * Важно различать DisplayRole и EditRole: делегат должен работать именно с EditRole,
+ * иначе он может получить “красивую строку”, а не машинно-удобное значение.
  */
 QVariant MyModel::data(const QModelIndex& index, int role) const
 {
+    // 1) Проверка индекса: View иногда запрашивает данные для невалидных индексов.
     if (!index.isValid())
         return {};
 
+    // 2) Координаты ячейки.
     const int row = index.row();
     const int col = index.column();
 
+    // 3) Проверка границ.
     if (row < 0 || row >= m_vector.size())
         return {};
     if (col < 0 || col >= columnCountValue())
         return {};
 
+    // 4) Достаём объект строки и определяем столбец.
     const MyRect& r = m_vector[row];
     const Column column = static_cast<Column>(col);
 
-    // Для редактирования обычно возвращаем то же значение, что и для отображения
-    if (role == Qt::DisplayRole || role == Qt::EditRole)
+    /**
+     * @par Qt::EditRole
+     * Значения, которые ожидают редакторы/делегаты.
+     * Здесь мы намеренно возвращаем “удобные для редактирования” типы.
+     */
+    if (role == Qt::EditRole)
     {
         switch (column)
         {
-        case Column::PenColor:
-            return r.penColor.name(); // "#RRGGBB"
-
-        case Column::PenStyle:
-            // QVariant не хранит Qt::PenStyle напрямую, поэтому отдаём int
-            return static_cast<int>(r.penStyle);
-
-        case Column::PenWidth: return r.penWidth;
-        case Column::Left:     return r.left;
-        case Column::Top:      return r.top;
-        case Column::Width:    return r.width;
-        case Column::Height:   return r.height;
-
-        case Column::Count:
-            break;
+        case Column::PenColor:  return r.penColor;                  // QColor
+        case Column::PenStyle:  return static_cast<int>(r.penStyle);// int
+        case Column::PenWidth:  return r.penWidth;
+        case Column::Left:      return r.left;
+        case Column::Top:       return r.top;
+        case Column::Width:     return r.width;
+        case Column::Height:    return r.height;
+        case Column::Count:     break;
         }
         return {};
     }
 
-    // DecorationRole — пиктограмма для цвета
+    /**
+     * @par Qt::DisplayRole
+     * Значения, отображаемые пользователю.
+     * Здесь мы делаем вывод “красивым”: стиль пера строкой, цвет — текст + иконка.
+     */
+    if (role == Qt::DisplayRole)
+    {
+        switch (column)
+        {
+        case Column::PenColor:  return r.penColor.name();            // "#RRGGBB"
+        case Column::PenStyle:  return penStyleToString(r.penStyle); // "Qt::DotLine"
+        case Column::PenWidth:  return r.penWidth;
+        case Column::Left:      return r.left;
+        case Column::Top:       return r.top;
+        case Column::Width:     return r.width;
+        case Column::Height:    return r.height;
+        case Column::Count:     break;
+        }
+        return {};
+    }
+
+    /**
+     * @par Qt::DecorationRole
+     * Декорация (иконки). В нашем случае это пиктограмма цвета.
+     *
+     * QTableView при отрисовке ячейки может дополнительно запросить DecorationRole.
+     * Мы отдаём QIcon на основе QPixmap 32x32, заполненного цветом пера.
+     */
     if (role == Qt::DecorationRole && column == Column::PenColor)
     {
         QPixmap px(32, 32);
@@ -116,26 +216,40 @@ QVariant MyModel::data(const QModelIndex& index, int role) const
         return QIcon(px);
     }
 
+    // Прочие роли не поддерживаем.
     return {};
 }
 
 /**
- * @brief Устанавливает данные для ячейки (редактирование).
+ * @brief Устанавливает данные для ячейки модели (обратный путь редактирования).
  *
- * Обрабатывается только роль Qt::EditRole.
- * Сохраняет значение в контейнер m_vector.
- * После изменения генерирует dataChanged(index, index) для обновления представлений.
+ * @details
+ * Когда пользователь редактирует ячейку, делегат (или стандартный редактор Qt)
+ * в конечном итоге вызывает model->setData(index, value, role).
+ *
+ * Мы обрабатываем **только** Qt::EditRole.
+ *
+ * Алгоритм:
+ * 1) проверить валидность индекса и границы;
+ * 2) преобразовать QVariant к нужному типу в зависимости от столбца;
+ * 3) сохранить значение в @ref m_vector;
+ * 4) уведомить View сигналом dataChanged(index, index).
  *
  * @param index Индекс ячейки.
- * @param value Новое значение (QVariant).
+ * @param value Новое значение.
  * @param role Роль (должна быть Qt::EditRole).
- * @return true при успешном изменении данных, иначе false.
+ * @return true если значение принято (даже если оно совпало), иначе false.
+ *
+ * @note
+ * Мы используем флаг @c changed, чтобы не посылать dataChanged() зря.
+ * Это экономит перерисовку и “дребезг” сигналов при повторной установке того же значения.
  */
 bool MyModel::setData(const QModelIndex& index, const QVariant& value, int role)
 {
     if (!index.isValid())
         return false;
 
+    // Меняем данные только при редактировании.
     if (role != Qt::EditRole)
         return false;
 
@@ -150,59 +264,131 @@ bool MyModel::setData(const QModelIndex& index, const QVariant& value, int role)
     MyRect& r = m_vector[row];
     const Column column = static_cast<Column>(col);
 
+    bool changed = false;
+
     switch (column)
     {
     case Column::PenColor:
     {
-        // Ожидаем строку "#RRGGBB" / "RRGGBB" / именованный цвет ("red") — QColor сам разбирает
-        const QString s = value.toString().trimmed();
-        const QColor c(s);
+        /**
+         * Делегат цвета пишет QColor напрямую.
+         * Но если пользователь редактирует “вручную” (например, стандартным редактором),
+         * сюда может прийти строка "#RRGGBB". Поддерживаем оба сценария.
+         */
+        QColor c;
+        if (value.canConvert<QColor>())
+            c = value.value<QColor>();
+        else
+            c = QColor(value.toString().trimmed());
+
         if (!c.isValid())
             return false;
 
-        r.penColor = c;
+        if (r.penColor != c)
+        {
+            r.penColor = c;
+            changed = true;
+        }
         break;
     }
     case Column::PenStyle:
     {
-        // Пока редактируем через int (делегат по умолчанию даст SpinBox)
+        /**
+         * PenStyle редактируется как int, потому что:
+         *  - ComboBox хранит userData = int(Qt::PenStyle),
+         *  - setEditorData()/setModelData() работают через findData/currentData().
+         */
         const int styleInt = value.toInt();
-        r.penStyle = static_cast<Qt::PenStyle>(styleInt);
+        const Qt::PenStyle style = static_cast<Qt::PenStyle>(styleInt);
+
+        if (r.penStyle != style)
+        {
+            r.penStyle = style;
+            changed = true;
+        }
         break;
     }
     case Column::PenWidth:
-        r.penWidth = value.toInt();
+    {
+        const int w = value.toInt();
+        if (r.penWidth != w)
+        {
+            r.penWidth = w;
+            changed = true;
+        }
         break;
-
+    }
     case Column::Left:
-        r.left = value.toInt();
+    {
+        const int v = value.toInt();
+        if (r.left != v)
+        {
+            r.left = v;
+            changed = true;
+        }
         break;
+    }
     case Column::Top:
-        r.top = value.toInt();
+    {
+        const int v = value.toInt();
+        if (r.top != v)
+        {
+            r.top = v;
+            changed = true;
+        }
         break;
+    }
     case Column::Width:
-        r.width = value.toInt();
+    {
+        const int v = value.toInt();
+        if (r.width != v)
+        {
+            r.width = v;
+            changed = true;
+        }
         break;
+    }
     case Column::Height:
-        r.height = value.toInt();
+    {
+        const int v = value.toInt();
+        if (r.height != v)
+        {
+            r.height = v;
+            changed = true;
+        }
         break;
-
+    }
     case Column::Count:
         return false;
     }
 
-    // Изменился один элемент
+    // Если фактически ничего не изменилось — считаем операцию успешной.
+    if (!changed)
+        return true;
+
+    /**
+     * Уведомляем представления, что изменился один элемент.
+     *
+     * Важно: после dataChanged() View может заново запросить data() с разными ролями,
+     * поэтому корректно обновятся и DisplayRole (текст), и DecorationRole (иконка).
+     */
     emit dataChanged(index, index);
     return true;
 }
 
 /**
- * @brief Возвращает заголовки строк/столбцов.
+ * @brief Возвращает заголовок строки/столбца.
  *
- * - Для Qt::Horizontal: берётся строка из m_headerData по номеру секции.
- * - Для Qt::Vertical: возвращается номер строки в человекочитаемом виде (1..N).
+ * @details
+ * - Горизонтальные заголовки (столбцы) берутся из @ref m_headerData.
+ * - Вертикальные заголовки (строки) — это номера строк (1..N).
  *
- * Заголовки предоставляются только для Qt::DisplayRole.
+ * Заголовки запрашиваются View с ролью Qt::DisplayRole.
+ *
+ * @param section Номер секции (индекс столбца или строки).
+ * @param orientation Ориентация (Qt::Horizontal / Qt::Vertical).
+ * @param role Роль (используем только Qt::DisplayRole).
+ * @return Заголовок или пустой QVariant, если секция вне диапазона/роль не та.
  */
 QVariant MyModel::headerData(int section, Qt::Orientation orientation, int role) const
 {
@@ -221,15 +407,20 @@ QVariant MyModel::headerData(int section, Qt::Orientation orientation, int role)
 }
 
 /**
- * @brief Устанавливает заголовок столбца (только горизонтальный).
+ * @brief Устанавливает заголовок столбца (опционально; в лабораторной может не требоваться).
  *
- * Допускается только для:
- * - orientation == Qt::Horizontal
+ * @details
+ * Обрабатываем только:
  * - role == Qt::EditRole
+ * - orientation == Qt::Horizontal
  *
- * При успешном изменении генерирует headerDataChanged().
+ * При успешной установке генерируем headerDataChanged() для обновления View.
  *
- * @return true, если заголовок изменён; иначе false.
+ * @param section Номер столбца.
+ * @param orientation Ориентация (должна быть Qt::Horizontal).
+ * @param value Новый текст заголовка.
+ * @param role Роль (должна быть Qt::EditRole).
+ * @return true при успешной установке; иначе false.
  */
 bool MyModel::setHeaderData(int section,
                             Qt::Orientation orientation,
@@ -253,16 +444,19 @@ bool MyModel::setHeaderData(int section,
 /**
  * @brief Вставляет строки в модель.
  *
- * Увеличивает контейнер данных m_vector на count элементов MyRect (по умолчанию),
- * начиная с позиции row.
+ * @details
+ * В табличных моделях Qt **обязательно** нужно оборачивать модификацию контейнера
+ * вызовами beginInsertRows()/endInsertRows(). Это:
+ *  - гарантирует целостность модели,
+ *  - уведомляет все связанные представления об изменениях.
  *
- * Важно: beginInsertRows()/endInsertRows() обязательны для сохранения целостности
- * модели и уведомления всех представлений.
+ * Мы вставляем @p count “пустых” объектов MyRect (конструктор по умолчанию),
+ * начиная с позиции @p row.
  *
- * @param row Позиция вставки (нормализуется в диапазон [0..rowCount()]).
- * @param count Количество вставляемых строк (>0).
+ * @param row Позиция вставки (нормализуется в допустимый диапазон).
+ * @param count Количество вставляемых строк (должно быть > 0).
  * @param parent Родительский индекс (для таблицы должен быть невалидным).
- * @return true при успешной вставке, иначе false.
+ * @return true при успешной вставке; иначе false.
  */
 bool MyModel::insertRows(int row, int count, const QModelIndex& parent)
 {
@@ -272,6 +466,7 @@ bool MyModel::insertRows(int row, int count, const QModelIndex& parent)
     if (count <= 0)
         return false;
 
+    // Нормализация позиции вставки.
     if (row < 0)
         row = 0;
     if (row > m_vector.size())
@@ -279,7 +474,7 @@ bool MyModel::insertRows(int row, int count, const QModelIndex& parent)
 
     beginInsertRows(QModelIndex(), row, row + count - 1);
 
-    // Вставляем count "пустых" элементов (MyRect по умолчанию)
+    // Вставляем count элементов MyRect{}.
     for (int i = 0; i < count; ++i)
         m_vector.insert(row, MyRect{});
 
@@ -288,12 +483,16 @@ bool MyModel::insertRows(int row, int count, const QModelIndex& parent)
 }
 
 /**
- * @brief Возвращает флаги элемента модели.
+ * @brief Возвращает флаги поведения элемента (select/edit/enabled и т.п.).
  *
- * Флаги описывают свойства элемента и определяют его поведение в View.
- * Для разрешения редактирования добавляем Qt::ItemIsEditable к флагам базового класса.
+ * @details
+ * Чтобы QTableView позволил редактирование, ячейка должна иметь флаг Qt::ItemIsEditable.
  *
- * Важно: флаги берём из QAbstractTableModel::flags(index), иначе возможна рекурсия.
+ * Важно: флаги нужно брать из базового класса и дополнять, иначе легко получить
+ * рекурсию при ошибочном вызове MyModel::flags() из MyModel::flags().
+ *
+ * @param index Индекс элемента.
+ * @return Флаги базового класса + Qt::ItemIsEditable; либо Qt::NoItemFlags для невалидного индекса.
  */
 Qt::ItemFlags MyModel::flags(const QModelIndex& index) const
 {
@@ -304,12 +503,18 @@ Qt::ItemFlags MyModel::flags(const QModelIndex& index) const
 }
 
 /**
- * @brief Добавляет одну строку данных (rect) в конец модели.
+ * @brief Добавляет одну строку данных в конец модели.
+ *
+ * @details
+ * Используется как “удобный API” модели для заполнения извне (например, из UI или из файла).
  *
  * Алгоритм:
- * 1) insertRows(rowCount(), 1)
- * 2) запись rect в m_vector для добавленной строки
- * 3) dataChanged() для обновления отображения (в т.ч. иконки цвета)
+ * 1) добавить строку через insertRows();
+ * 2) записать данные в соответствующий элемент m_vector;
+ * 3) уведомить View о смене данных в диапазоне всей строки (чтобы обновились
+ *    текст и иконка цвета).
+ *
+ * @param rect Прямоугольник для добавления.
  */
 void MyModel::slotAddData(const MyRect& rect)
 {
@@ -320,6 +525,7 @@ void MyModel::slotAddData(const MyRect& rect)
 
     m_vector[row] = rect;
 
+    // Обновляем всю строку (включая иконку цвета).
     const QModelIndex leftTop = index(row, 0);
     const QModelIndex rightBottom = index(row, columnCountValue() - 1);
     emit dataChanged(leftTop, rightBottom);
@@ -328,12 +534,15 @@ void MyModel::slotAddData(const MyRect& rect)
 /**
  * @brief Заполняет модель тестовыми данными.
  *
- * Используется для отладки корректности отображения (QTableView) и ролей
- * (DisplayRole/EditRole + DecorationRole для цвета).
+ * @details
+ * Удобно вызывать из конструктора MainWindow для проверки:
+ *  - отображения таблицы,
+ *  - строкового вывода стиля пера (DisplayRole),
+ *  - иконки цвета (DecorationRole),
+ *  - редактирования (EditRole + setData()).
  */
 void MyModel::test()
 {
     slotAddData(MyRect(QColor(Qt::red),   Qt::SolidLine, 2, 100, 100, 100, 100));
     slotAddData(MyRect(QColor(Qt::green), Qt::DotLine,   3,  10,  10, 100, 200));
-    // Можно добавить ещё данных при желании
 }

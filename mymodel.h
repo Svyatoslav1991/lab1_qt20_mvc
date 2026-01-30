@@ -10,92 +10,112 @@
 /**
  * @brief Табличная модель для хранения и отображения примитивов MyRect.
  *
- * Модель предназначена для использования с QTableView (Model/View).
- * Каждая строка таблицы соответствует одному объекту MyRect,
- * каждый столбец — одному параметру прямоугольника (атрибуты пера + геометрия).
+ * Архитектура Qt Model/View:
+ *  - модель хранит данные (m_vector),
+ *  - представление (QTableView) отображает их и запрашивает через методы модели,
+ *  - делегат (QStyledItemDelegate / MyDelegate) управляет редактированием и отрисовкой редакторов.
  *
- * Данные хранятся внутри модели в контейнере QVector<MyRect>.
+ * В данной лабораторной:
+ *  - Каждая строка соответствует одному MyRect.
+ *  - Каждый столбец соответствует одному полю MyRect (атрибуты пера + геометрия).
+ *
+ * Поддерживается редактирование:
+ *  - flags() добавляет Qt::ItemIsEditable,
+ *  - setData() сохраняет значения в m_vector и генерирует dataChanged().
+ *
+ * Совместимость с MyDelegate:
+ *  - PenStyle редактируется как int(Qt::PenStyle) через Qt::EditRole,
+ *  - PenColor редактируется как QColor через Qt::EditRole (двойной клик → QColorDialog).
  */
 class MyModel final : public QAbstractTableModel
 {
     Q_OBJECT
 public:
     /**
-     * @brief Конструктор модели.
-     * @param parent Родительский QObject.
+     * @brief Конструктор.
+     * @param parent Родительский объект.
      *
-     * Формирует заголовки столбцов (m_headerData).
+     * Формирует горизонтальные заголовки столбцов (m_headerData).
+     * Порядок заголовков соответствует порядку значений enum Column.
      */
     explicit MyModel(QObject* parent = nullptr);
 
     /**
-     * @brief Возвращает число строк модели.
-     * @param parent Родительский индекс (для табличной модели должен быть невалидным).
-     * @return Количество прямоугольников в контейнере (m_vector.size()).
+     * @brief Количество строк.
+     * @param parent Для табличной модели дочерних индексов нет; если parent валиден, возвращаем 0.
      */
     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
 
     /**
-     * @brief Возвращает число столбцов модели.
-     * @param parent Родительский индекс (для табличной модели должен быть невалидным).
-     * @return Количество столбцов (Column::Count).
+     * @brief Количество столбцов.
+     * @param parent Для табличной модели дочерних индексов нет; если parent валиден, возвращаем 0.
      */
     int columnCount(const QModelIndex& parent = QModelIndex()) const override;
 
     /**
      * @brief Возвращает данные ячейки по индексу и роли.
-     * @param index Индекс (строка/столбец).
-     * @param role Роль данных (Qt::DisplayRole, Qt::EditRole, Qt::DecorationRole и т.д.).
      *
-     * Реализовано:
-     * - Qt::DisplayRole / Qt::EditRole:
-     *   - PenColor: строка вида "#RRGGBB" (QColor::name())
-     *   - PenStyle: int (static_cast<int>(Qt::PenStyle)), т.к. QVariant не хранит Qt::PenStyle напрямую
-     *   - остальные параметры: int
-     * - Qt::DecorationRole (только PenColor): цветная пиктограмма (QIcon) 32x32.
+     * Роли:
+     *  - Qt::DisplayRole: данные для отображения пользователю
+     *      - PenColor: строка "#RRGGBB"
+     *      - PenStyle: строка "Qt::SolidLine" и т.п. (чтобы не видеть числа)
+     *      - остальные: int
      *
-     * @return QVariant с данными или пустой QVariant при некорректном индексе/роли.
+     *  - Qt::EditRole: данные для редакторов/делегатов
+     *      - PenColor: QColor (чтобы делегат мог корректно открыть QColorDialog)
+     *      - PenStyle: int(Qt::PenStyle) (чтобы ComboBox работал через userData/findData)
+     *      - остальные: int
+     *
+     *  - Qt::DecorationRole:
+     *      - PenColor: иконка (QIcon) с заливкой цветом пера
+     *
+     * @param index Индекс ячейки.
+     * @param role Роль данных.
+     * @return QVariant с данными или пустой QVariant, если индекс/роль не поддержаны.
      */
     QVariant data(const QModelIndex& index,
                   int role = Qt::DisplayRole) const override;
 
     /**
-     * @brief Устанавливает данные для ячейки (используется при редактировании).
+     * @brief Устанавливает данные в модели (используется при редактировании).
+     *
+     * Обрабатывается только Qt::EditRole.
+     * Сохраняет значение в m_vector и уведомляет представления через dataChanged().
+     *
+     * Важные случаи:
+     *  - PenColor: принимает QColor (от делегата) или строку (если редактировать вручную)
+     *  - PenStyle: принимает int (Qt::PenStyle)
+     *
      * @param index Индекс ячейки.
-     * @param value Новое значение (QVariant).
-     * @param role Роль (обрабатывается только Qt::EditRole).
-     *
-     * Сохраняет значение в контейнер m_vector и уведомляет представления
-     * сигналом dataChanged(index, index).
-     *
-     * @return true при успешном изменении данных, иначе false.
+     * @param value Новое значение.
+     * @param role Роль (должна быть Qt::EditRole).
+     * @return true, если данные успешно применены.
      */
     bool setData(const QModelIndex& index,
                  const QVariant& value,
                  int role = Qt::EditRole) override;
 
     /**
-     * @brief Возвращает заголовок секции (строки/столбца) по orientation.
-     * @param section Номер секции.
-     * @param orientation Qt::Horizontal или Qt::Vertical.
-     * @param role Роль данных (используется Qt::DisplayRole).
+     * @brief Возвращает заголовки строк/столбцов.
      *
-     * Горизонтальные заголовки берутся из m_headerData,
-     * вертикальные — нумерация строк (1..N).
+     * Горизонтальные заголовки берутся из m_headerData.
+     * Вертикальные заголовки — номера строк 1..N.
+     *
+     * @param section Номер секции.
+     * @param orientation Ориентация заголовка.
+     * @param role Должна быть Qt::DisplayRole.
      */
     QVariant headerData(int section,
                         Qt::Orientation orientation,
                         int role = Qt::DisplayRole) const override;
 
     /**
-     * @brief Устанавливает заголовок столбца.
-     * @param section Номер секции.
-     * @param orientation Ориентация (допускается только Qt::Horizontal).
-     * @param value Новое значение заголовка.
-     * @param role Роль (используется Qt::EditRole).
+     * @brief Устанавливает заголовок столбца (горизонтальный).
      *
-     * При успехе генерирует сигнал headerDataChanged().
-     * @return true, если заголовок был изменён; иначе false.
+     * @param section Номер столбца.
+     * @param orientation Должна быть Qt::Horizontal.
+     * @param value Новое имя заголовка.
+     * @param role Должна быть Qt::EditRole.
      */
     bool setHeaderData(int section,
                        Qt::Orientation orientation,
@@ -103,79 +123,73 @@ public:
                        int role = Qt::EditRole) override;
 
     /**
-     * @brief Вставляет строки в модель.
-     * @param row Позиция вставки.
-     * @param count Количество вставляемых строк.
-     * @param parent Родительский индекс (для табличной модели должен быть невалидным).
+     * @brief Вставка строк в модель.
      *
-     * Обязательно вызывает beginInsertRows() и endInsertRows()
-     * для корректного оповещения представлений.
-     *
-     * Вставляемые элементы инициализируются значениями MyRect по умолчанию.
-     *
-     * @return true при успешной вставке, иначе false.
+     * Вставляет count элементов MyRect{} начиная с row.
+     * Обязательно использует beginInsertRows/endInsertRows для корректного обновления View.
      */
     bool insertRows(int row,
                     int count,
                     const QModelIndex& parent = QModelIndex()) override;
 
     /**
-     * @brief Возвращает флаги элемента модели.
-     * @param index Индекс элемента.
+     * @brief Флаги элемента.
      *
-     * Добавляет Qt::ItemIsEditable ко флагам базового класса, чтобы разрешить редактирование
-     * всех ячеек таблицы.
+     * Добавляет Qt::ItemIsEditable к флагам базового класса,
+     * чтобы разрешить редактирование всех ячеек.
      */
     Qt::ItemFlags flags(const QModelIndex& index) const override;
 
     /**
-     * @brief Отладочный метод заполнения модели тестовыми данными.
-     *
-     * Удобен для проверки корректности model/view взаимодействия.
-     * Использует slotAddData().
+     * @brief Тестовое заполнение модели (для отладки).
      */
     void test();
 
 public slots:
     /**
-     * @brief Добавляет одну строку с данными rect в конец модели.
-     * @param rect Данные прямоугольника.
+     * @brief Добавляет одну строку (rect) в конец модели.
      *
      * Алгоритм:
-     * 1) добавляем строку через insertRows()
-     * 2) записываем rect в контейнер данных
-     * 3) уведомляем представления сигналом dataChanged()
+     * 1) insertRows(rowCount(), 1)
+     * 2) записываем rect в m_vector
+     * 3) dataChanged по диапазону строки для обновления отображения
      */
     void slotAddData(const MyRect& rect);
 
 private:
     /**
-     * @brief Перечисление столбцов табличной модели.
+     * @brief Номера столбцов модели.
+     *
+     * @note Порядок значений должен соответствовать:
+     *  - заголовкам m_headerData
+     *  - логике в data()/setData()
+     *  - константам в MyDelegate (kPenColorColumn=0, kPenStyleColumn=1)
      */
     enum class Column : int
     {
-        PenColor = 0, ///< Цвет пера (QColor)
-        PenStyle,     ///< Стиль пера (Qt::PenStyle -> int)
-        PenWidth,     ///< Толщина пера (int)
-        Left,         ///< X координата (int)
-        Top,          ///< Y координата (int)
-        Width,        ///< Ширина (int)
-        Height,       ///< Высота (int)
-        Count         ///< Количество столбцов
+        PenColor = 0,
+        PenStyle,
+        PenWidth,
+        Left,
+        Top,
+        Width,
+        Height,
+        Count
     };
 
-    /// Преобразование Column в int.
     static constexpr int toInt(Column c) noexcept { return static_cast<int>(c); }
-
-    /// Количество столбцов модели.
     static constexpr int columnCountValue() noexcept { return toInt(Column::Count); }
 
-private:
-    /// Контейнер примитивов (данные модели). Одна строка таблицы = один MyRect.
-    QVector<MyRect> m_vector;
+    /**
+     * @brief Преобразует Qt::PenStyle в человекочитаемую строку.
+     * @param style Значение Qt::PenStyle.
+     * @return Строка вида "Qt::SolidLine".
+     */
+    static QString penStyleToString(Qt::PenStyle style);
 
-    /// Заголовки столбцов для горизонтальной ориентации.
-    QStringList     m_headerData;
+private:
+    QVector<MyRect> m_vector;     ///< Данные модели (строка таблицы = один MyRect).
+    QStringList     m_headerData; ///< Заголовки столбцов (горизонтальные).
 };
 
 #endif // MYMODEL_H
