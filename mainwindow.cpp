@@ -10,8 +10,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_model = new MyModel(this);
     ui->tableView->setModel(m_model);
 
-    // Заполняем модель тестовыми данными (через slotAddData внутри test()).
     m_model->test();
+
+    ui->tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
 }
 
 MainWindow::~MainWindow()
