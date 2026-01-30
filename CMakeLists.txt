@@ -28,3 +28,6 @@ add_executable(lab1_Qt20_MVC
     )
 
 target_link_libraries(lab1_Qt20_MVC PRIVATE Qt5::Widgets)
+
+enable_testing()
+add_subdirectory(tests)
