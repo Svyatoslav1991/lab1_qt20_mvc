@@ -10,7 +10,7 @@
 /**
  * @brief Табличная модель для хранения и отображения примитивов MyRect.
  *
- * Модель предназначена для использования с QTableView (паттерн Model/View).
+ * Модель предназначена для использования с QTableView (Model/View).
  * Каждая строка таблицы соответствует одному объекту MyRect,
  * каждый столбец — одному параметру прямоугольника (атрибуты пера + геометрия).
  *
@@ -24,7 +24,7 @@ public:
      * @brief Конструктор модели.
      * @param parent Родительский QObject.
      *
-     * Инициализирует заголовки столбцов (m_headerData).
+     * Формирует заголовки столбцов (m_headerData).
      */
     explicit MyModel(QObject* parent = nullptr);
 
@@ -43,13 +43,16 @@ public:
     int columnCount(const QModelIndex& parent = QModelIndex()) const override;
 
     /**
-     * @brief Возвращает данные ячейки.
+     * @brief Возвращает данные ячейки по индексу и роли.
      * @param index Индекс (строка/столбец).
      * @param role Роль данных (Qt::DisplayRole, Qt::DecorationRole и т.д.).
      *
      * Реализовано:
-     * - Qt::DisplayRole: текстовые значения параметров MyRect.
-     * - Qt::DecorationRole (только для столбца PenColor): цветная пиктограмма 16x16.
+     * - Qt::DisplayRole:
+     *   - PenColor: строка вида "#RRGGBB"
+     *   - PenStyle: целое число (static_cast<int>(Qt::PenStyle)), т.к. QVariant не хранит Qt::PenStyle напрямую
+     *   - остальные параметры: int
+     * - Qt::DecorationRole (только PenColor): цветная пиктограмма (QIcon) 32x32.
      *
      * @return QVariant с данными или пустой QVariant при некорректном индексе/роли.
      */
@@ -57,13 +60,13 @@ public:
                   int role = Qt::DisplayRole) const override;
 
     /**
-     * @brief Возвращает заголовок для строки/столбца.
+     * @brief Возвращает заголовок секции (строки/столбца) по orientation.
      * @param section Номер секции.
      * @param orientation Qt::Horizontal или Qt::Vertical.
      * @param role Роль данных (используется Qt::DisplayRole).
      *
      * Горизонтальные заголовки берутся из m_headerData,
-     * вертикальные — нумерация строк 1..N.
+     * вертикальные — нумерация строк (0..N-1) или (1..N) — здесь используется 1..N.
      */
     QVariant headerData(int section,
                         Qt::Orientation orientation,
@@ -110,40 +113,47 @@ public:
      */
     Qt::ItemFlags flags(const QModelIndex& index) const override;
 
+    /**
+     * @brief Отладочный метод заполнения модели тестовыми данными.
+     *
+     * Удобен для проверки корректности model/view взаимодействия.
+     * Использует slotAddData().
+     */
+    void test();
+
+public slots:
+    /**
+     * @brief Добавляет одну строку с данными rect в конец модели.
+     * @param rect Данные прямоугольника.
+     *
+     * Алгоритм:
+     * 1) добавляем строку через insertRows()
+     * 2) записываем rect в контейнер данных
+     * 3) уведомляем представления сигналом dataChanged()
+     */
+    void slotAddData(const MyRect& rect);
+
 private:
     /**
      * @brief Перечисление столбцов табличной модели.
-     *
-     * Используется для удобства и типобезопасности при обращении к столбцам.
-     * Column::Count — служебное значение, равное числу столбцов.
      */
     enum class Column : int
     {
         PenColor = 0, ///< Цвет пера (QColor)
-        PenStyle,     ///< Стиль пера (Qt::PenStyle)
+        PenStyle,     ///< Стиль пера (Qt::PenStyle -> int в DisplayRole)
         PenWidth,     ///< Толщина пера (int)
-        Left,         ///< X координата левого верхнего угла (int)
-        Top,          ///< Y координата левого верхнего угла (int)
+        Left,         ///< X координата (int)
+        Top,          ///< Y координата (int)
         Width,        ///< Ширина (int)
         Height,       ///< Высота (int)
         Count         ///< Количество столбцов
     };
 
-    /**
-     * @brief Преобразование Column в int.
-     */
-    static constexpr int toInt(Column c) noexcept
-    {
-        return static_cast<int>(c);
-    }
+    /// Преобразование Column в int.
+    static constexpr int toInt(Column c) noexcept { return static_cast<int>(c); }
 
-    /**
-     * @brief Возвращает количество столбцов модели.
-     */
-    static constexpr int columnCountValue() noexcept
-    {
-        return toInt(Column::Count);
-    }
+    /// Количество столбцов модели.
+    static constexpr int columnCountValue() noexcept { return toInt(Column::Count); }
 
 private:
     /// Контейнер примитивов (данные модели). Одна строка таблицы = один MyRect.
