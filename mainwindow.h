@@ -2,6 +2,7 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include "mymodel.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -17,5 +18,6 @@ public:
 
 private:
     Ui::MainWindow *ui;
+    MyModel* m_model = nullptr;
 };
 #endif // MAINWINDOW_H
