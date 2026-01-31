@@ -1,43 +1,33 @@
-cmake_minimum_required(VERSION 3.5)
+# tests/CMakeLists.txt
+cmake_minimum_required(VERSION 3.10)
 
-set(CMAKE_AUTOMOC ON)
+# Если в корне уже есть include(CTest), можно не повторять, но не мешает:
+include(CTest)
 
-find_package(Qt5 REQUIRED COMPONENTS Test Widgets)
+function(add_qt_test target source)
+  add_executable(${target} ${source})
 
-# Чтобы тесты не требовали WinMain на Windows/MinGW
-# (иначе словишь "undefined reference to WinMain")
-# WIN32_EXECUTABLE=true => WinMain, false => main. :contentReference[oaicite:2]{index=2}
-function(make_test_exe target_name)
-    add_executable(${target_name} ${ARGN})
-    target_include_directories(${target_name} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/..)
-    target_link_libraries(${target_name} PRIVATE Qt5::Test Qt5::Widgets)
-    set_target_properties(${target_name} PROPERTIES WIN32_EXECUTABLE FALSE)
-    add_test(NAME ${target_name} COMMAND ${target_name})
+  target_link_libraries(${target} PRIVATE
+    Qt5::Test
+    Qt5::Widgets
+    lab1_core
+  )
+
+  # Твой MinGW workaround
+  set_target_properties(${target} PROPERTIES
+    AUTOMOC_COMPILER_PREDEFINES OFF
+  )
+
+  # Фикс "WinMain": если сборка пошла в Windows subsystem, подтягиваем Qt5::WinMain (qtmain).
+  # Это типовой рецепт для Qt+Windows. :contentReference[oaicite:1]{index=1}
+  if (WIN32 AND TARGET Qt5::WinMain)
+    target_link_libraries(${target} PRIVATE Qt5::WinMain)
+  endif()
+
+  add_test(NAME ${target} COMMAND $<TARGET_FILE:${target}>)
 endfunction()
 
-# --- MyRect ---
-make_test_exe(test_myrect
-    test_myrect.cpp
-)
-
-# --- MyModel ---
-make_test_exe(test_mymodel
-    test_mymodel.cpp
-    ../mymodel.cpp
-)
-
-# --- MyDelegate (без editorEvent) ---
-make_test_exe(test_mydelegate
-    test_mydelegate.cpp
-    ../mydelegate.cpp
-    ../mymodel.cpp
-)
-
-# --- MainWindow wiring (без вызова QFileDialog слотов) ---
-make_test_exe(test_mainwindow
-    test_mainwindow.cpp
-    ../mainwindow.cpp
-    ../mydelegate.cpp
-    ../mymodel.cpp
-    ../mainwindow.ui
-)
+add_qt_test(tst_myrect      tst_myrect.cpp)
+add_qt_test(tst_mymodel     tst_mymodel.cpp)
+add_qt_test(tst_mydelegate  tst_mydelegate.cpp)
+add_qt_test(tst_mainwindow  tst_mainwindow.cpp)

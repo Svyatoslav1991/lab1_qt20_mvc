@@ -1,6 +1,5 @@
-// ======================= mainwindow.cpp =======================
 #include "mainwindow.h"
-#include "./ui_mainwindow.h"
+#include "ui_mainwindow.h"
 
 #include <QFileDialog>
 #include <QHeaderView>
