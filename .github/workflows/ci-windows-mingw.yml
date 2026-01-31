@@ -1,0 +1,55 @@
+name: ci-windows-mingw
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 1) MSYS2 + MinGW toolchain + CMake/Ninja
+      # Документация по msys2/setup-msys2: параметры msystem/install и т.п.
+      - name: Setup MSYS2 (MinGW64)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+
+      # 2) Установка Qt
+      # install-qt-action: options version/target/arch, и переменная QT_ROOT_DIR
+      - name: Install Qt 5.14.2 (MinGW)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '5.14.2'
+          target: 'desktop'
+          # ВАЖНО: arch нужно выбрать из списка (ссылка есть в README install-qt-action).
+          # Под твой MinGW 7.3 обычно ищут что-то вида win64_mingw73_64,
+          # но это значение проверь на сайте со списком arch.
+          arch: 'PUT_ARCH_FROM_DDALCINO_HERE'
+          cache: true
+
+      # 3) Configure / Build / Test
+      # Используем QT_ROOT_DIR, про который прямо говорит README install-qt-action.
+      - name: Configure (CMake)
+        shell: msys2 {0}
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR"
+
+      - name: Build
+        shell: msys2 {0}
+        run: cmake --build build --config Release
+
+      - name: Test (ctest)
+        shell: msys2 {0}
+        run: ctest --test-dir build --output-on-failure
