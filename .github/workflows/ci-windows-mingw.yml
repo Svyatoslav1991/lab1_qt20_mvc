@@ -12,44 +12,46 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1) MSYS2 + MinGW toolchain + CMake/Ninja
-      # Документация по msys2/setup-msys2: параметры msystem/install и т.п.
-      - name: Setup MSYS2 (MinGW64)
-        uses: msys2/setup-msys2@v2
+      - name: Setup Python (needed by install-qt-action / aqt)
+        uses: actions/setup-python@v5
         with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-ninja
+          python-version: "3.12"
 
-      # 2) Установка Qt
-      # install-qt-action: options version/target/arch, и переменная QT_ROOT_DIR
-      - name: Install Qt 5.14.2 (MinGW)
+      - name: Install Qt (MinGW 7.3 build)
         uses: jurplel/install-qt-action@v4
         with:
-          version: '5.14.2'
-          target: 'desktop'
-          # ВАЖНО: arch нужно выбрать из списка (ссылка есть в README install-qt-action).
-          # Под твой MinGW 7.3 обычно ищут что-то вида win64_mingw73_64,
-          # но это значение проверь на сайте со списком arch.
-          arch: 'PUT_ARCH_FROM_DDALCINO_HERE'
+          version: "5.14.2"
+          arch: "win64_mingw73"
+          # ставим MinGW 7.3 toolchain (Qt Tools) — см. aqt docs
+          tools: "tools_mingw,qt.tools.win64_mingw730"
           cache: true
 
-      # 3) Configure / Build / Test
-      # Используем QT_ROOT_DIR, про который прямо говорит README install-qt-action.
-      - name: Configure (CMake)
-        shell: msys2 {0}
-        run: >
-          cmake -S . -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR"
+      - name: Add Qt MinGW to PATH
+        shell: pwsh
+        run: |
+          Write-Host "QT_ROOT_DIR=$env:QT_ROOT_DIR"
+          if (!(Test-Path "$env:QT_ROOT_DIR\Tools")) {
+            throw "Qt Tools folder not found: $env:QT_ROOT_DIR\Tools"
+          }
+          Get-ChildItem "$env:QT_ROOT_DIR\Tools" -Directory | Select-Object Name
+
+          $mingwBin = Join-Path $env:QT_ROOT_DIR "Tools\mingw730_64\bin"
+          if (!(Test-Path $mingwBin)) {
+            throw "MinGW bin not found: $mingwBin"
+          }
+          Add-Content $env:GITHUB_PATH $mingwBin
+
+      - name: Configure (CMake + MinGW Makefiles)
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
 
       - name: Build
-        shell: msys2 {0}
-        run: cmake --build build --config Release
+        shell: pwsh
+        run: |
+          cmake --build build -- -j 2
 
-      - name: Test (ctest)
-        shell: msys2 {0}
-        run: ctest --test-dir build --output-on-failure
+      - name: Test (CTest)
+        shell: pwsh
+        run: |
+          ctest --test-dir build --output-on-failure
