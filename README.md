@@ -1,5 +1,7 @@
 # lab1_qt20_mvc
 
+[![ci-windows-mingw](https://github.com/Svyatoslav1991/lab1_qt20_mvc/actions/workflows/ci-windows-mingw.yml/badge.svg)](https://github.com/Svyatoslav1991/lab1_qt20_mvc/actions/workflows/ci-windows-mingw.yml)
+
 Учебный проект на **Qt Widgets** с архитектурой **Model/View (MVC)**: табличное представление прямоугольников (`MyRect`) с редактированием через **модель** (`QAbstractTableModel`) и **делегат**.
 
 Проект демонстрирует:
@@ -7,6 +9,15 @@
 - разделение ролей `DisplayRole / EditRole / DecorationRole`;
 - сохранение/загрузка данных в **TSV**;
 - покрытие ключевой логики **автотестами QtTest**.
+
+---
+
+## Требования
+
+- CMake (минимальная версия в проекте: **3.10**, см. `CMakeLists.txt`)
+- Компилятор с поддержкой **C++17** (см. `CMakeLists.txt`)
+- Qt 5: модули **Widgets** и **Test** (см. `find_package(Qt5 REQUIRED COMPONENTS Widgets Test)`)
+- Windows + MinGW (локально) / GitHub Actions (CI)
 
 ---
 
@@ -96,6 +107,14 @@
 
 ---
 
+## CI
+
+В репозитории настроен GitHub Actions workflow: **сборка + прогон тестов на Windows (MinGW)**.
+
+Файл workflow: `.github/workflows/ci-windows-mingw.yml`.
+
+---
+
 ## Структура репозитория
 
 (Исходники лежат в корне проекта — папка `src/` не используется.)
@@ -111,12 +130,87 @@
 
 ---
 
-## Сборка и запуск (CMake)
+## Сборка и запуск (Windows + MinGW)
 
-Пример для сборки out-of-source:
+Ниже — самый простой вариант через консоль (Git Bash / PowerShell).
+
+### 1) Подготовь Qt для CMake
+CMake должен видеть Qt5-пакеты.
+
+Вариант A (рекомендуется): укажи `Qt5_DIR` на папку с `Qt5Config.cmake`.
+
+Пример пути (у тебя Qt 5.14.2 MinGW 7.3):
+- `C:\Qt\5.14.2\mingw73_64\lib\cmake\Qt5`
+
+Вариант B: укажи `CMAKE_PREFIX_PATH` на корень установленного Qt:
+- `C:\Qt\5.14.2\mingw73_64`
+
+> Если собираешь из **Qt Creator**, то обычно ничего дополнительно указывать не надо:
+> Qt Creator сам подставляет пути из выбранного Kit (MinGW + Qt).
+
+### 2) Сборка проекта (out-of-source)
+
+**Git Bash (пример):**
+```bash
+mkdir -p build
+cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Debug \
+  -DQt5_DIR="C:/Qt/5.14.2/mingw73_64/lib/cmake/Qt5"
+
+cmake --build build -- -j 2
+```
+
+**PowerShell (пример):**
+```powershell
+mkdir build
+cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Debug `
+  -DQt5_DIR="C:/Qt/5.14.2/mingw73_64/lib/cmake/Qt5"
+
+cmake --build build -- -j 2
+```
+
+> Если используешь `CMAKE_PREFIX_PATH`, то замени `-DQt5_DIR=...` на:
+> `-DCMAKE_PREFIX_PATH="C:/Qt/5.14.2/mingw73_64"`
+
+### 3) Запуск приложения
+
+После сборки исполняемый файл будет в `build/` (для MinGW Makefiles — обычно прямо там):
 
 ```bash
-mkdir build
-cd build
-cmake ..
-cmake --build . --config Debug
+./build/lab1_Qt20_MVC.exe
+```
+
+---
+
+## Запуск тестов
+
+Тесты регистрируются через CTest, поэтому их удобнее запускать так.
+
+### 1) Прогон всех тестов
+```bash
+ctest --test-dir build --output-on-failure
+```
+
+### 2) Прогон одного теста по имени
+Имена тестов заданы в `tests/CMakeLists.txt`:
+- `tst_myrect`
+- `tst_mymodel`
+- `tst_mydelegate`
+- `tst_mainwindow`
+
+Пример:
+```bash
+ctest --test-dir build -R tst_mymodel --output-on-failure
+```
+
+### 3) Запуск тестов напрямую (без CTest)
+Путь к бинарникам тестов обычно build/tests/ (если используешь MinGW Makefiles). 
+Если не нашёл — проверь, где CMake создал .exe (поиск по tst_*.exe).
+Можно запускать `.exe` из `build/tests/`:
+
+```bash
+./build/tests/tst_mymodel.exe
+./build/tests/tst_mainwindow.exe
+```
+
+---
+
