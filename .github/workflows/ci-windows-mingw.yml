@@ -17,34 +17,61 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Qt (MinGW 7.3 build)
+      - name: Install Qt 5.14.2 (mingw73_64) + MinGW 7.3 toolchain
         uses: jurplel/install-qt-action@v4
         with:
           version: "5.14.2"
-          arch: "win64_mingw73"
-          # ставим MinGW 7.3 toolchain (Qt Tools) — см. aqt docs
+          # В прошлых логах у тебя Qt ставился в ...\5.14.2\mingw73_64 — используем тот же arch
+          arch: "mingw73_64"
+          # Ставим MinGW 7.3 как Qt Tools
           tools: "tools_mingw,qt.tools.win64_mingw730"
+          dir: "${{ github.workspace }}\\Qt"
           cache: true
 
-      - name: Add Qt MinGW to PATH
+      - name: Add Qt + MinGW to PATH
         shell: pwsh
         run: |
           Write-Host "QT_ROOT_DIR=$env:QT_ROOT_DIR"
-          if (!(Test-Path "$env:QT_ROOT_DIR\Tools")) {
-            throw "Qt Tools folder not found: $env:QT_ROOT_DIR\Tools"
-          }
-          Get-ChildItem "$env:QT_ROOT_DIR\Tools" -Directory | Select-Object Name
+          Write-Host "IQTA_TOOLS=$env:IQTA_TOOLS"
 
-          $mingwBin = Join-Path $env:QT_ROOT_DIR "Tools\mingw730_64\bin"
-          if (!(Test-Path $mingwBin)) {
-            throw "MinGW bin not found: $mingwBin"
+          if (-not $env:QT_ROOT_DIR) { throw "QT_ROOT_DIR is empty (Qt not installed?)" }
+
+          # 1) Qt bin (qmake, dll, etc.)
+          $qtBin = Join-Path $env:QT_ROOT_DIR "bin"
+          if (!(Test-Path $qtBin)) { throw "Qt bin not found: $qtBin" }
+          Add-Content $env:GITHUB_PATH $qtBin
+
+          # 2) MinGW bin (gcc/g++/mingw32-make)
+          if (-not $env:IQTA_TOOLS) { throw "IQTA_TOOLS is empty (Qt Tools not installed?)" }
+
+          $mingwDir = Get-ChildItem -Path $env:IQTA_TOOLS -Directory |
+            Where-Object { $_.Name -match 'mingw.*730.*64' } |
+            Select-Object -First 1
+
+          if (-not $mingwDir) {
+            Write-Host "Available tool dirs under IQTA_TOOLS:"
+            Get-ChildItem -Path $env:IQTA_TOOLS -Directory | ForEach-Object { Write-Host $_.FullName }
+            throw "MinGW 7.3 dir not found under IQTA_TOOLS"
           }
+
+          $mingwBin = Join-Path $mingwDir.FullName "bin"
+          if (!(Test-Path $mingwBin)) { throw "MinGW bin not found: $mingwBin" }
           Add-Content $env:GITHUB_PATH $mingwBin
+
+          # Отладка: покажем версии
+          Write-Host "g++:"
+          g++ --version
+          Write-Host "mingw32-make:"
+          mingw32-make --version
 
       - name: Configure (CMake + MinGW Makefiles)
         shell: pwsh
         run: |
-          cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          cmake -S . -B build `
+            -G "MinGW Makefiles" `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_TESTING=ON `
+            -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
 
       - name: Build
         shell: pwsh
